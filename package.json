@@ -1,0 +1,19 @@
+{
+  "name": "5-gegen-5-game-show",
+  "version": "1.0.0",
+  "description": "5 gegen 5 - Interactive Broadcast TV Game Show Platform (Host Console, 16:9 Display Board, Buzzer & CMS)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "rm -rf dist && mkdir -p dist && cp -r index.html game_set.json css js dist/"
+  },
+  "keywords": [
+    "5-gegen-5",
+    "familienduell",
+    "gameshow",
+    "broadcast",
+    "quiz"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>5 GEGEN 5 — Broadcast TV Game Show Plattform</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="broadcast-topbar" id="topbar">
+    <div class="brand-lockup">
+      <span class="brand-emblem">5 GEGEN 5</span>
+      <span class="brand-subtitle" id="active-set-banner">TV STUDIO REGIE</span>
+    </div>
+
+    <nav class="mode-nav" aria-label="Ansichten">
+      <button type="button" class="nav-tab" data-view-target="host" id="tab-host">
+        Spielleiter (Host)
+      </button>
+      <button type="button" class="nav-tab" data-view-target="display" id="tab-display">
+        Beamer / TV-Board (16:9)
+      </button>
+      <button type="button" class="nav-tab" data-view-target="buzzer" id="tab-buzzer">
+        Duell-Buzzer
+      </button>
+      <button type="button" class="nav-tab" data-view-target="editor" id="tab-editor">
+        Fragen-Editor (CMS)
+      </button>
+    </nav>
+
+    <div class="topbar-actions">
+      <div class="sync-pill" id="sync-status-pill" title="Multi-Screen Synchronisation aktiv">
+        <span class="sync-dot"></span>
+        <span id="sync-status-text">LIVE SYNC</span>
+      </div>
+      <button type="button" class="btn btn-sm" id="btn-mute-toggle" title="Audio Stummschalten">
+        TON: EIN
+      </button>
+      <button type="button" class="btn btn-sm btn-gold" id="btn-open-beamer" title="Öffnet die 16:9 TV-Ansicht in einem zweiten Fenster">
+        TV-FENSTER ÖFFNEN ↗
+      </button>
+    </div>
+  </header>
+
+  <main id="app-root"></main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

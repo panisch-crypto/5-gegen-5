@@ -1,0 +1,68 @@
+{
+  "id": "set_001",
+  "title": "Klassisches Familienduell Set 1",
+  "language": "de",
+  "rounds": [
+    {
+      "roundNumber": 1,
+      "multiplier": 1,
+      "question": "Nennen Sie etwas, das man im Kino kauft.",
+      "answers": [
+        { "id": 1, "text": "Popcorn", "points": 45 },
+        { "id": 2, "text": "Cola / Getränk", "points": 28 },
+        { "id": 3, "text": "Nachos", "points": 14 },
+        { "id": 4, "text": "Eis / Konfekt", "points": 8 },
+        { "id": 5, "text": "Kinokarte", "points": 5 }
+      ]
+    },
+    {
+      "roundNumber": 2,
+      "multiplier": 1,
+      "question": "Nennen Sie einen Grund, warum man morgens zu spät zur Arbeit kommt.",
+      "answers": [
+        { "id": 1, "text": "Verschlafen / Wecker überhört", "points": 38 },
+        { "id": 2, "text": "Stau / dichter Verkehr", "points": 26 },
+        { "id": 3, "text": "Bahn oder Bus hat Verspätung", "points": 16 },
+        { "id": 4, "text": "Auto springt nicht an / Panne", "points": 9 },
+        { "id": 5, "text": "Schlechtes Wetter / Glatteis", "points": 7 },
+        { "id": 6, "text": "Schlüssel oder Handy gesucht", "points": 4 }
+      ]
+    },
+    {
+      "roundNumber": 3,
+      "multiplier": 2,
+      "question": "Nennen Sie einen Ort, an dem man absolut leise sein muss.",
+      "answers": [
+        { "id": 1, "text": "Bibliothek / Bücherei", "points": 34 },
+        { "id": 2, "text": "Kirche / Gottesdienst", "points": 24 },
+        { "id": 3, "text": "Kino / Theater / Oper", "points": 15 },
+        { "id": 4, "text": "Krankenhaus", "points": 10 },
+        { "id": 5, "text": "Prüfung / Schule", "points": 8 },
+        { "id": 6, "text": "Friedhof / Beerdigung", "points": 6 },
+        { "id": 7, "text": "Kinderzimmer (wenn Baby schläft)", "points": 3 }
+      ]
+    },
+    {
+      "roundNumber": 4,
+      "multiplier": 3,
+      "question": "Nennen Sie etwas, das man vor einer langen Urlaubsreise zu Hause kontrolliert.",
+      "answers": [
+        { "id": 1, "text": "Herd / Backofen ausgeschaltet", "points": 30 },
+        { "id": 2, "text": "Fenster geschlossen", "points": 24 },
+        { "id": 3, "text": "Haustür abgeschlossen", "points": 16 },
+        { "id": 4, "text": "Wasserhähne zugedreht", "points": 10 },
+        { "id": 5, "text": "Licht ausgeschaltet", "points": 7 },
+        { "id": 6, "text": "Bügeleisen / Kaffeemaschine aus", "points": 6 },
+        { "id": 7, "text": "Müll heruntergebracht", "points": 4 },
+        { "id": 8, "text": "Heizung heruntergedreht", "points": 3 }
+      ]
+    }
+  ],
+  "finalQuestions": [
+    { "id": "f1", "question": "Nennen Sie einen typischen Feiertag." },
+    { "id": "f2", "question": "Nennen Sie ein Tier, das Winterschlaf hält." },
+    { "id": "f3", "question": "Nennen Sie etwas, das man am Strand vergisst." },
+    { "id": "f4", "question": "Nennen Sie ein Schulfach." },
+    { "id": "f5", "question": "Nennen Sie ein Fortbewegungsmittel mit zwei Rädern." }
+  ]
+}

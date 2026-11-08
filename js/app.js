@@ -1,5 +1,6 @@
 import { gameStore } from './store.js';
 import { soundEngine } from './audio.js';
+import { renderQRCodeSVG } from './qrcode.js';
 
 class GameShowApp {
   constructor() {
@@ -9,6 +10,7 @@ class GameShowApp {
     this.strikeClearTimeout = null;
     this.lastStrikeId = null;
     this.lastRenderedBoardKey = null;
+    this.qrTargetView = 'buzzer';
 
     this.bindTopbar();
     this.bindKeyboardShortcuts();
@@ -26,11 +28,24 @@ class GameShowApp {
       }
     });
 
+    window.addEventListener('sync-status', (e) => {
+      this.updateSyncUI(e.detail);
+    });
+
     gameStore.subscribe((state, effect) => {
       this.onStateUpdate(state, effect);
     });
 
+    this.updateSyncUI({
+      roomCode: gameStore.sync.roomCode,
+      isP2PHub: gameStore.sync.isP2PHub,
+      peerCount: gameStore.sync.p2pConnections.size,
+      p2pStatus: gameStore.sync.p2pStatus
+    });
     this.render();
+    if (new URLSearchParams(window.location.search).get('qr') === '1') {
+      this.openRoomModal();
+    }
   }
 
   detectInitialView() {
@@ -47,8 +62,32 @@ class GameShowApp {
     this.lastRenderedBoardKey = null;
     const url = new URL(window.location.href);
     url.searchParams.set('view', viewName);
+    url.searchParams.set('room', gameStore.sync.roomCode);
     window.history.pushState({}, '', url);
     this.render();
+  }
+
+  updateSyncUI(detail) {
+    if (!detail) return;
+    const codeEl = document.getElementById('topbar-room-code');
+    if (codeEl && detail.roomCode) {
+      codeEl.textContent = detail.roomCode;
+    }
+    const statusText = document.getElementById('sync-status-text');
+    if (statusText && detail.p2pStatus) {
+      statusText.textContent = detail.p2pStatus;
+    }
+    const buzzerStatusEl = document.getElementById('buzzer-p2p-status');
+    if (buzzerStatusEl && detail.p2pStatus) {
+      buzzerStatusEl.textContent = detail.p2pStatus;
+    }
+    const modal = document.getElementById('p2p-room-modal');
+    if (modal && !modal.hidden) {
+      const modalStatus = document.getElementById('p2p-modal-live-status');
+      if (modalStatus && detail.p2pStatus) {
+        modalStatus.textContent = detail.p2pStatus;
+      }
+    }
   }
 
   bindTopbar() {
@@ -73,9 +112,141 @@ class GameShowApp {
       openBeamerBtn.addEventListener('click', () => {
         const url = new URL(window.location.href);
         url.searchParams.set('view', 'display');
+        url.searchParams.set('room', gameStore.sync.roomCode);
         window.open(url.toString(), '5Gegen5BeamerView', 'width=1280,height=720');
       });
     }
+
+    const roomModalBtn = document.getElementById('btn-room-modal');
+    if (roomModalBtn) {
+      roomModalBtn.addEventListener('click', () => this.openRoomModal());
+    }
+
+    const closeRoomModalBtn = document.getElementById('btn-close-room-modal');
+    if (closeRoomModalBtn) {
+      closeRoomModalBtn.addEventListener('click', () => this.closeRoomModal());
+    }
+
+    const backdrop = document.getElementById('p2p-room-modal');
+    if (backdrop) {
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) this.closeRoomModal();
+      });
+    }
+  }
+
+  getShareableUrl(targetView = 'buzzer') {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('qr');
+    url.searchParams.set('view', targetView);
+    url.searchParams.set('room', gameStore.sync.roomCode);
+    return url.toString();
+  }
+
+  openRoomModal() {
+    const modal = document.getElementById('p2p-room-modal');
+    const body = document.getElementById('p2p-modal-body');
+    if (!modal || !body) return;
+
+    const roomCode = gameStore.sync.roomCode;
+    const shareUrl = this.getShareableUrl(this.qrTargetView);
+    const qrSvg = renderQRCodeSVG(shareUrl, 196);
+
+    body.innerHTML = `
+      <div class="p2p-modal-grid">
+        <div class="qr-frame-box">
+          ${qrSvg}
+          <span class="mono-num" style="color: #090C15; font-size: 0.78rem; font-weight: 700;">
+            ${this.qrTargetView === 'buzzer' ? 'SCAN FÜR HANDY-BUZZER' : 'SCAN FÜR TV-DISPLAY'}
+          </span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+            <div>
+              <div style="font-size: 0.8rem; color: var(--text-Secondary);">AKTUELLER RAUM-CODE:</div>
+              <div class="room-code-jumbo">${this.escapeHtml(roomCode)}</div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+              <span class="panel-badge mono-num" id="p2p-modal-live-status">${this.escapeHtml(gameStore.sync.p2pStatus)}</span>
+              <button type="button" class="btn btn-sm" id="modal-btn-new-room">
+                ↻ NEUER RAUM-CODE
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm ${this.qrTargetView === 'buzzer' ? 'btn-gold' : ''}" id="modal-qr-target-buzzer">
+              📱 QR: DUELL-BUZZER
+            </button>
+            <button type="button" class="btn btn-sm ${this.qrTargetView === 'display' ? 'btn-gold' : ''}" id="modal-qr-target-display">
+              📺 QR: TV / BEAMER
+            </button>
+            <button type="button" class="btn btn-sm" id="modal-btn-copy-link">
+              📋 LINK KOPIEREN
+            </button>
+          </div>
+
+          <div style="background: var(--bg-canvas); border: 1px solid var(--border-steel); padding: 0.45rem 0.65rem; border-radius: var(--radius-sharp);">
+            <div style="font-size: 0.72rem; color: var(--text-Secondary);">DIREKTER GERÄTE-LINK:</div>
+            <div class="mono-num" style="font-size: 0.85rem; color: var(--accent-gold); word-break: break-all;" id="modal-share-url-text">
+              ${this.escapeHtml(shareUrl)}
+            </div>
+          </div>
+
+          <div style="border-top: 1px solid var(--border-steel); padding-top: 0.65rem;">
+            <label style="font-size: 0.8rem; color: var(--text-Secondary); display: block; margin-bottom: 0.35rem;">
+              MIT BESTEHENDEM RAUM-CODE VERBINDEN (Z.B. VOM HAUPTBILDSCHIRM):
+            </label>
+            <div style="display: flex; gap: 0.45rem;">
+              <input type="text" class="input-field mono-num" id="modal-join-code-input"
+                placeholder="CODE (Z.B. K49X)" maxlength="6"
+                style="text-transform: uppercase; width: 160px;" />
+              <button type="button" class="btn btn-gold" id="modal-btn-join-room">
+                🔗 RAUM BEITRETEN
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modal.hidden = false;
+
+    document.getElementById('modal-qr-target-buzzer')?.addEventListener('click', () => {
+      this.qrTargetView = 'buzzer';
+      this.openRoomModal();
+    });
+    document.getElementById('modal-qr-target-display')?.addEventListener('click', () => {
+      this.qrTargetView = 'display';
+      this.openRoomModal();
+    });
+    document.getElementById('modal-btn-new-room')?.addEventListener('click', () => {
+      gameStore.sync.regenerateRoomCode();
+      this.openRoomModal();
+    });
+    document.getElementById('modal-btn-copy-link')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          btn.textContent = '✓ KOPIERT!';
+          setTimeout(() => { btn.textContent = '📋 LINK KOPIEREN'; }, 1500);
+        }).catch(() => {});
+      }
+    });
+    document.getElementById('modal-btn-join-room')?.addEventListener('click', () => {
+      const inp = document.getElementById('modal-join-code-input');
+      if (inp && inp.value.trim().length >= 3) {
+        gameStore.sync.joinRoom(inp.value.trim());
+        this.openRoomModal();
+        this.render();
+      }
+    });
+  }
+
+  closeRoomModal() {
+    const modal = document.getElementById('p2p-room-modal');
+    if (modal) modal.hidden = true;
   }
 
   bindKeyboardShortcuts() {
@@ -589,7 +760,9 @@ class GameShowApp {
           <div class="console-panel">
             <div class="panel-header">
               <h2 class="panel-title">2. DUELL AM PULT (FACE-OFF)</h2>
-              <span class="panel-badge">PHASE 2</span>
+              <button type="button" class="btn btn-sm btn-gold" id="host-btn-open-qr">
+                📱 HANDY-BUZZER QR (${this.escapeHtml(gameStore.sync.roomCode)})
+              </button>
             </div>
 
             <div style="background: var(--bg-panel-deep); border: 1px solid var(--border-bright); padding: 0.65rem; border-radius: var(--radius-sharp); text-align: center;">
@@ -948,6 +1121,10 @@ class GameShowApp {
     document.getElementById('host-btn-save-teams-b')?.addEventListener('click', saveTeams);
 
     // Face-Off Buzzer & Play/Pass
+    document.getElementById('host-btn-open-qr')?.addEventListener('click', () => {
+      this.qrTargetView = 'buzzer';
+      this.openRoomModal();
+    });
     document.getElementById('host-buzz-a')?.addEventListener('click', () => gameStore.buzzIn('A'));
     document.getElementById('host-buzz-b')?.addEventListener('click', () => gameStore.buzzIn('B'));
     document.getElementById('host-buzz-reset')?.addEventListener('click', () => gameStore.resetBuzzer());
@@ -1095,9 +1272,37 @@ class GameShowApp {
   renderBuzzerView() {
     const state = gameStore.state;
     const round = gameStore.getCurrentRoundData();
+    const roomCode = gameStore.sync.roomCode;
 
     this.root.innerHTML = `
       <section class="buzzer-arena" aria-label="Duell-Buzzer Pult">
+        <!-- Room Connection Bar for Second Device / Mobile Phone -->
+        <div class="console-panel" style="flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;">
+          <div>
+            <div style="font-size: 0.78rem; color: var(--text-Secondary);">VERBUNDENER SPIEL-RAUM (WEBRTC P2P):</div>
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.15rem;">
+              <span class="mono-num" style="font-size: 1.5rem; color: var(--accent-gold); font-weight: 700;">
+                RAUM: ${this.escapeHtml(roomCode)}
+              </span>
+              <span class="panel-badge mono-num" id="buzzer-p2p-status">
+                ${this.escapeHtml(gameStore.sync.p2pStatus)}
+              </span>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <input type="text" class="input-field mono-num" id="buzzer-room-input"
+              placeholder="RAUM-CODE" maxlength="6" value="${this.escapeHtml(roomCode)}"
+              style="width: 120px; text-transform: uppercase;" />
+            <button type="button" class="btn btn-sm btn-gold" id="buzzer-btn-join-room">
+              🔗 RAUM WECHSELN
+            </button>
+            <button type="button" class="btn btn-sm" id="buzzer-btn-show-qr">
+              📱 QR-CODE
+            </button>
+          </div>
+        </div>
+
         <div class="console-panel" style="text-align: center;">
           <div style="font-size: 0.9rem; color: var(--accent-gold); letter-spacing: 0.14em;">
             5 GEGEN 5 • DUELL AM PULT • RUNDE ${round ? round.roundNumber : 1}
@@ -1142,6 +1347,17 @@ class GameShowApp {
     document.getElementById('client-buzz-a')?.addEventListener('click', () => gameStore.buzzIn('A'));
     document.getElementById('client-buzz-b')?.addEventListener('click', () => gameStore.buzzIn('B'));
     document.getElementById('client-buzz-reset')?.addEventListener('click', () => gameStore.resetBuzzer());
+    document.getElementById('buzzer-btn-join-room')?.addEventListener('click', () => {
+      const inp = document.getElementById('buzzer-room-input');
+      if (inp && inp.value.trim().length >= 3) {
+        gameStore.sync.joinRoom(inp.value.trim());
+        this.renderBuzzerView();
+      }
+    });
+    document.getElementById('buzzer-btn-show-qr')?.addEventListener('click', () => {
+      this.qrTargetView = 'buzzer';
+      this.openRoomModal();
+    });
   }
 
   // ==========================================================================

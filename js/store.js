@@ -28,13 +28,16 @@ export class GameStore {
     this.gameSets = this.loadGameSets();
     this.timerInterval = null;
 
-    this.sync = new SyncEngine((remoteState, effect) => {
-      this.state = remoteState;
-      if (effect && effect.sound) {
-        soundEngine.play(effect.sound);
-      }
-      this.notify(effect);
-    });
+    this.sync = new SyncEngine(
+      (remoteState, effect) => {
+        this.state = remoteState;
+        if (effect && effect.sound) {
+          soundEngine.play(effect.sound);
+        }
+        this.notify(effect);
+      },
+      () => this.state
+    );
 
     const persisted = this.sync.loadPersistedState();
     this.state = persisted || this.createDefaultState(this.gameSets[0].id);

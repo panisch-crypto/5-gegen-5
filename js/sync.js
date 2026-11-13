@@ -44,7 +44,16 @@ export class SyncEngine {
     this.reconnectTimer = null;
 
     this.lastSeq = 0;
+    this.localSeq = 0;
+    this.seenPerSender = new Map();
+    this.hubRetryCount = 0;
     this.latestEnvelope = null;
+
+    if (typeof window !== 'undefined') {
+      const cleanup = () => this.teardownWebRTC();
+      window.addEventListener('pagehide', cleanup);
+      window.addEventListener('beforeunload', cleanup);
+    }
 
     this.initLocalSync();
     this.initNetworkSync();
@@ -271,6 +280,20 @@ export class SyncEngine {
     }
   }
 
+  getPeerConfig() {
+    return {
+      debug: 0,
+      pingInterval: 5000,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun.cloudflare.com:3478' }
+        ]
+      }
+    };
+  }
+
   startAsP2PHub() {
     this.teardownWebRTC();
     const hubId = this.getHubPeerId();
@@ -278,11 +301,12 @@ export class SyncEngine {
     this.emitStatus();
 
     try {
-      const peer = new window.Peer(hubId, { debug: 0 });
+      const peer = new window.Peer(hubId, this.getPeerConfig());
       this.peer = peer;
 
       peer.on('open', () => {
         this.isP2PHub = true;
+        this.hubRetryCount = 0;
         this.p2pStatus = `HOST BEREIT (${this.roomCode})`;
         this.emitStatus();
       });
@@ -291,12 +315,31 @@ export class SyncEngine {
         this.setupHubIncomingConnection(conn);
       });
 
+      peer.on('disconnected', () => {
+        if (this.peer && !this.peer.destroyed) {
+          this.p2pStatus = `VERBINDE NEU (${this.roomCode})...`;
+          this.emitStatus();
+          try { this.peer.reconnect(); } catch (e) {}
+        }
+      });
+
       peer.on('error', (err) => {
         if (err && err.type === 'unavailable-id') {
-          // Another tab already owns the Hub ID for this room — connect as a Client Spoke!
-          this.startAsP2PClient();
+          if (this.hubRetryCount < 3) {
+            this.hubRetryCount++;
+            this.p2pStatus = `RAUM-ID BELEGT, RETRY (${this.hubRetryCount}/3)...`;
+            this.emitStatus();
+            setTimeout(() => {
+              if (this.isPreferredHostView()) {
+                this.startAsP2PHub();
+              }
+            }, 1500);
+          } else {
+            // Another active Host tab already owns the Hub ID — connect as Client Spoke
+            this.startAsP2PClient();
+          }
         } else {
-          this.p2pStatus = `P2P BEREIT (${this.roomCode})`;
+          this.p2pStatus = `P2P FEHLER: ${err?.type || 'UNBEKANNT'}`;
           this.emitStatus();
         }
       });
@@ -377,15 +420,23 @@ export class SyncEngine {
     this.emitStatus();
 
     try {
-      const peer = new window.Peer(undefined, { debug: 0 });
+      const peer = new window.Peer(undefined, this.getPeerConfig());
       this.peer = peer;
 
       peer.on('open', () => {
         this.connectClientToHub();
       });
 
-      peer.on('error', () => {
-        this.p2pStatus = `WARTE AUF HOST (${this.roomCode})`;
+      peer.on('disconnected', () => {
+        if (this.peer && !this.peer.destroyed) {
+          try { this.peer.reconnect(); } catch (e) {}
+        }
+      });
+
+      peer.on('error', (err) => {
+        this.p2pStatus = err?.type === 'peer-unavailable'
+          ? `WARTE AUF HOST (${this.roomCode})`
+          : `P2P FEHLER: ${err?.type || 'VERBINDUNG'}`;
         this.emitStatus();
         this.scheduleClientReconnect();
       });
@@ -397,10 +448,16 @@ export class SyncEngine {
 
   connectClientToHub() {
     if (!this.peer || this.peer.destroyed) return;
+    if (this.hostConnection) {
+      if (this.hostConnection.open) return;
+      try { this.hostConnection.close(); } catch (e) {}
+      this.hostConnection = null;
+    }
+
     const hubId = this.getHubPeerId();
 
     try {
-      const conn = this.peer.connect(hubId, { reliable: true });
+      const conn = this.peer.connect(hubId, { serialization: 'json' });
       this.hostConnection = conn;
 
       conn.on('open', () => {
@@ -416,6 +473,9 @@ export class SyncEngine {
       });
 
       const onDisconnect = () => {
+        if (this.hostConnection === conn) {
+          this.hostConnection = null;
+        }
         this.p2pStatus = `VERBINDUNG GETRENNT (${this.roomCode})`;
         this.emitStatus();
         this.scheduleClientReconnect();
@@ -447,9 +507,17 @@ export class SyncEngine {
   handleIncoming(envelope, source) {
     if (!envelope || !envelope.state) return;
     if (envelope.senderId === this.instanceId) return;
-    if (envelope.seq && envelope.seq <= this.lastSeq) return;
 
-    this.lastSeq = envelope.seq || Date.now();
+    // Deduplicate per sender using sender-local monotonic sequence (immune to device clock skew)
+    if (envelope.senderId && typeof envelope.senderSeq === 'number') {
+      const prev = this.seenPerSender.get(envelope.senderId) || 0;
+      if (envelope.senderSeq <= prev) return;
+      this.seenPerSender.set(envelope.senderId, envelope.senderSeq);
+    } else if (envelope.seq && envelope.senderId === undefined) {
+      if (envelope.seq <= this.lastSeq) return;
+    }
+
+    this.lastSeq = Math.max(this.lastSeq, envelope.seq || Date.now());
     this.latestEnvelope = envelope;
 
     // Persist locally as well
@@ -464,9 +532,11 @@ export class SyncEngine {
 
   broadcast(state, effect = null) {
     const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    const senderSeq = ++this.localSeq;
     this.lastSeq = seq;
     const envelope = {
       senderId: this.instanceId,
+      senderSeq,
       seq,
       timestamp: Date.now(),
       roomCode: this.roomCode,

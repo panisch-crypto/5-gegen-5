@@ -43,6 +43,10 @@ export class SyncEngine {
     this.hostConnection = null;      // DataConnection to hub (when client spoke)
     this.reconnectTimer = null;
 
+    // Mode D: HTTPS/SSE Cloud Relay (NAT/Firewall/Android 4G/5G fallback)
+    this.relaySse = null;
+    this.relayConnected = false;
+
     this.lastSeq = 0;
     this.localSeq = 0;
     this.seenPerSender = new Map();
@@ -50,7 +54,10 @@ export class SyncEngine {
     this.latestEnvelope = null;
 
     if (typeof window !== 'undefined') {
-      const cleanup = () => this.teardownWebRTC();
+      const cleanup = () => {
+        this.teardownWebRTC();
+        this.teardownRelay();
+      };
       window.addEventListener('pagehide', cleanup);
       window.addEventListener('beforeunload', cleanup);
     }
@@ -58,6 +65,7 @@ export class SyncEngine {
     this.initLocalSync();
     this.initNetworkSync();
     this.initWebRTCSync();
+    this.initCloudRelay();
   }
 
   resolveInitialRoomCode() {
@@ -119,13 +127,21 @@ export class SyncEngine {
       ? this.p2pConnections.size
       : (this.hostConnection && this.hostConnection.open ? 1 : 0);
 
+    let displayStatus = this.p2pStatus;
+    if (this.relayConnected && !this.isP2PHub && (!this.hostConnection || !this.hostConnection.open)) {
+      displayStatus = `CLOUD-RELAY VERBUNDEN (${this.roomCode})`;
+    } else if (this.relayConnected && this.isP2PHub && peerCount === 0) {
+      displayStatus = `BEREIT (${this.roomCode} • P2P + CLOUD)`;
+    }
+
     if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
       window.dispatchEvent(new CustomEvent('sync-status', {
         detail: {
           roomCode: this.roomCode,
           isP2PHub: this.isP2PHub,
           peerCount,
-          p2pStatus: this.p2pStatus,
+          p2pStatus: displayStatus,
+          relayConnected: this.relayConnected,
           networkConnected: this.networkConnected
         }
       }));
@@ -151,6 +167,8 @@ export class SyncEngine {
     this.initLocalSync();
     this.teardownWebRTC();
     this.initWebRTCSync();
+    this.teardownRelay();
+    this.initCloudRelay();
     this.emitStatus();
     return true;
   }
@@ -502,6 +520,95 @@ export class SyncEngine {
   }
 
   // ==========================================================================
+  // MODE D: HTTPS/SSE Cloud Relay (ntfy.sh) — Works across 4G/5G & Strict NATs
+  // ==========================================================================
+  getRelayTopicUrl() {
+    return `https://ntfy.sh/fg5-room-v1-${this.roomCode.toLowerCase()}`;
+  }
+
+  teardownRelay() {
+    this.relayConnected = false;
+    if (this.relaySse) {
+      try { this.relaySse.close(); } catch (e) {}
+      this.relaySse = null;
+    }
+  }
+
+  initCloudRelay() {
+    if (typeof EventSource === 'undefined' || typeof fetch === 'undefined') return;
+    if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') return;
+
+    this.teardownRelay();
+    const topicUrl = this.getRelayTopicUrl();
+
+    try {
+      const sse = new EventSource(`${topicUrl}/sse`);
+      this.relaySse = sse;
+
+      sse.onopen = () => {
+        this.relayConnected = true;
+        this.emitStatus();
+
+        // If this is a Buzzer or Display client, request current state from Host
+        if (!this.isPreferredHostView()) {
+          this.postToRelay({
+            type: 'REQUEST_STATE',
+            senderId: this.instanceId,
+            roomCode: this.roomCode
+          });
+        }
+      };
+
+      sse.onmessage = (event) => {
+        try {
+          const wrapper = JSON.parse(event.data);
+          if (wrapper.event !== 'message' || !wrapper.message) return;
+          const payload = JSON.parse(wrapper.message);
+          if (!payload || payload.senderId === this.instanceId) return;
+
+          if (payload.type === 'REQUEST_STATE') {
+            if (this.isPreferredHostView()) {
+              const currentState = typeof this.getLatestState === 'function' ? this.getLatestState() : null;
+              if (currentState) {
+                this.postToRelay({
+                  senderId: this.instanceId,
+                  senderSeq: ++this.localSeq,
+                  seq: Date.now() * 1000,
+                  timestamp: Date.now(),
+                  roomCode: this.roomCode,
+                  state: currentState,
+                  effect: null
+                });
+              }
+            }
+            return;
+          }
+
+          this.handleIncoming(payload, 'CloudRelay');
+        } catch (e) {}
+      };
+
+      sse.onerror = () => {
+        this.relayConnected = false;
+        this.emitStatus();
+      };
+    } catch (e) {
+      this.relayConnected = false;
+    }
+  }
+
+  postToRelay(payload) {
+    if (typeof fetch === 'undefined') return;
+    if (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:') return;
+    try {
+      fetch(this.getRelayTopicUrl(), {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  // ==========================================================================
   // UNIFIED MESSAGE HANDLING & BROADCAST
   // ==========================================================================
   handleIncoming(envelope, source) {
@@ -568,7 +675,12 @@ export class SyncEngine {
       try { this.hostConnection.send(envelope); } catch (e) {}
     }
 
-    // 4. Push to Local LAN Server (Mode B) if connected
+    // 4. Push to HTTPS/SSE Cloud Relay (works on Android 4G/5G & strict NATs)
+    if (this.relayConnected || (typeof window !== 'undefined' && window.location && window.location.protocol.startsWith('http'))) {
+      this.postToRelay(envelope);
+    }
+
+    // 5. Push to Local LAN Server (Mode B) if connected
     if (this.networkConnected && window.location && window.location.protocol.startsWith('http')) {
       fetch('/api/state', {
         method: 'POST',
